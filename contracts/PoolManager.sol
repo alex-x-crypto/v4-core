@@ -223,6 +223,7 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
 
         PoolId id = key.toId();
         Pool.Fees memory fees;
+        // 调用相应的pool的 modifyPosition，并把fees累计起来
         (delta, fees) = pools[id].modifyPosition(
             Pool.ModifyPositionParams({
                 owner: msg.sender,
@@ -242,6 +243,7 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
             if (fees.feeForProtocol1 > 0) {
                 protocolFeesAccrued[key.currency1] += fees.feeForProtocol1;
             }
+            // 累积对应的hookFee
             if (fees.feeForHook0 > 0) {
                 hookFeesAccrued[address(key.hooks)][key.currency0] += fees.feeForHook0;
             }
@@ -287,6 +289,7 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
         uint256 feeForHook;
         Pool.SwapState memory state;
         PoolId id = key.toId();
+        // 针对相应的pool，调用swap，会返回feeForHook，并累积起来
         (delta, feeForProtocol, feeForHook, state) = pools[id].swap(
             Pool.SwapParams({
                 fee: totalSwapFee,
@@ -304,6 +307,7 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
             if (feeForProtocol > 0) {
                 protocolFeesAccrued[params.zeroForOne ? key.currency0 : key.currency1] += feeForProtocol;
             }
+            // 累积 feeForHook 到 hookFeesAccrued
             if (feeForHook > 0) {
                 hookFeesAccrued[address(key.hooks)][params.zeroForOne ? key.currency0 : key.currency1] += feeForHook;
             }
@@ -464,6 +468,7 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
         }
     }
 
+    // protocolFees 不是可以随意转移的，必须是 `owner` 或者 `protocolFeeController`
     function collectProtocolFees(address recipient, Currency currency, uint256 amount)
         external
         returns (uint256 amountCollected)
@@ -475,6 +480,9 @@ contract PoolManager is IPoolManager, Owned, NoDelegateCall, ERC1155, IERC1155Re
         currency.transfer(recipient, amountCollected);
     }
 
+    // 这个函数为什么谁都可以调用？ hookFeesAccrued 会被无条件转移到指定地址
+    // 1. modify position 的时候会收 hookFee
+    // 2. swap 的时候会收 hookFee
     function collectHookFees(address recipient, Currency currency, uint256 amount)
         external
         returns (uint256 amountCollected)
