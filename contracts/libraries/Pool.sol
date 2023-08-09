@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {SafeCast} from "./SafeCast.sol";
 import {TickBitmap} from "./TickBitmap.sol";
@@ -48,7 +48,7 @@ library Pool {
 
     /// @notice Thrown when sqrtPriceLimitX96 on a swap has already exceeded its limit
     /// @param sqrtPriceCurrentX96 The invalid, already surpassed sqrtPriceLimitX96
-    /// @param sqrtPriceLimitX96 The invalid, already surpassed sqrtPriceLimitX96
+    /// @param sqrtPriceLimitX96 The surpassed price limit
     error PriceLimitAlreadyExceeded(uint160 sqrtPriceCurrentX96, uint160 sqrtPriceLimitX96);
 
     /// @notice Thrown when sqrtPriceLimitX96 lies outside of valid tick/price range
@@ -162,7 +162,7 @@ library Pool {
         uint256 feeGrowthInside1X128;
     }
 
-    struct Fees {
+    struct FeeAmounts {
         uint256 feeForProtocol0;
         uint256 feeForProtocol1;
         uint256 feeForHook0;
@@ -174,7 +174,7 @@ library Pool {
     /// @return result the deltas of the token balances of the pool
     function modifyPosition(State storage self, ModifyPositionParams memory params)
         internal
-        returns (BalanceDelta result, Fees memory fees)
+        returns (BalanceDelta result, FeeAmounts memory fees)
     {
         if (self.slot0.sqrtPriceX96 == 0) revert PoolNotInitialized();
 
@@ -288,7 +288,11 @@ library Pool {
         result = result - toBalanceDelta(feesOwed0.toInt128(), feesOwed1.toInt128());
     }
 
-    function _calculateExternalFees(State storage self, BalanceDelta result) internal view returns (Fees memory fees) {
+    function _calculateExternalFees(State storage self, BalanceDelta result)
+        internal
+        view
+        returns (FeeAmounts memory fees)
+    {
         int128 amount0 = result.amount0();
         int128 amount1 = result.amount1();
 
@@ -377,7 +381,7 @@ library Pool {
         if (params.amountSpecified == 0) revert SwapAmountCannotBeZero();
 
         Slot0 memory slot0Start = self.slot0;
-        if (self.slot0.sqrtPriceX96 == 0) revert PoolNotInitialized();
+        if (slot0Start.sqrtPriceX96 == 0) revert PoolNotInitialized();
         if (params.zeroForOne) {
             if (params.sqrtPriceLimitX96 >= slot0Start.sqrtPriceX96) {
                 revert PriceLimitAlreadyExceeded(slot0Start.sqrtPriceX96, params.sqrtPriceLimitX96);
@@ -411,10 +415,9 @@ library Pool {
             liquidity: cache.liquidityStart
         });
 
+        StepComputations memory step;
         // continue swapping as long as we haven't used the entire input/output and haven't reached the price limit
         while (state.amountSpecifiedRemaining != 0 && state.sqrtPriceX96 != params.sqrtPriceLimitX96) {
-            StepComputations memory step;
-
             step.sqrtPriceStartX96 = state.sqrtPriceX96;
 
             (step.tickNext, step.initialized) =
